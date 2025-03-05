@@ -135,6 +135,59 @@
         .permission-button.denied .permission-status {
             color: #d93025;
         }
+
+        .screen-selector {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .screen-selector .title {
+            color: white;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+
+        .screens-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            padding: 20px;
+            max-width: 800px;
+        }
+
+        .screen-option {
+            background: #1d1d1f;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .screen-option:hover {
+            transform: scale(1.02);
+        }
+
+        .screen-option img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .screen-option .name {
+            color: white;
+            font-size: 12px;
+            padding: 8px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -186,8 +239,13 @@
         </div>
     </div>
 
+    <div class="screen-selector" id="screenSelector">
+        <div class="title">Select Screen to Record</div>
+        <div class="screens-grid" id="screensGrid"></div>
+    </div>
+
     <script>
-        const { ipcRenderer } = require('electron');
+        const { ipcRenderer, desktopCapturer } = require('electron');
 
         // Screen Recording Permission
         const screenPermBtn = document.getElementById('screenPermissionBtn');
@@ -243,10 +301,104 @@
         checkAllPermissions();
         checkAccessibilityPermission();
 
-        // Recording functions
-        function captureEntireDesktop() {
-            console.log('Capture entire desktop clicked');
+        let mediaRecorder;
+        let recordedChunks = [];
+
+        async function captureEntireDesktop() {
+            const screenSelector = document.getElementById('screenSelector');
+            const screensGrid = document.getElementById('screensGrid');
+            screensGrid.innerHTML = '';
+
+            try {
+                const sources = await ipcRenderer.invoke('get-sources');
+                
+                sources.forEach(source => {
+                    const div = document.createElement('div');
+                    div.className = 'screen-option';
+                    div.innerHTML = `
+                        <img src="${source.thumbnail.toDataURL()}" />
+                        <div class="name">${source.name}</div>
+                    `;
+                    div.onclick = () => startRecording(source.id);
+                    screensGrid.appendChild(div);
+                });
+
+                screenSelector.style.display = 'flex';
+            } catch (e) {
+                console.error('Error getting sources:', e);
+            }
         }
+
+        async function startRecording(sourceId) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        mandatory: {
+                            chromeMediaSource: 'desktop',
+                            chromeMediaSourceId: sourceId,
+                            minWidth: 1280,
+                            maxWidth: 4000,
+                            minHeight: 720,
+                            maxHeight: 4000
+                        }
+                    }
+                });
+
+                document.getElementById('screenSelector').style.display = 'none';
+
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = handleDataAvailable;
+                mediaRecorder.onstop = handleStop;
+
+                recordedChunks = [];
+                mediaRecorder.start();
+                ipcRenderer.send('start-recording');
+
+            } catch (e) {
+                console.error('Error starting recording:', e);
+            }
+        }
+
+        function handleDataAvailable(e) {
+            if (e.data.size > 0) {
+                recordedChunks.push(e.data);
+            }
+        }
+
+        async function handleStop() {
+            const blob = new Blob(recordedChunks, {
+                type: 'video/webm; codecs=vp9'
+            });
+
+            const buffer = Buffer.from(await blob.arrayBuffer());
+            const date = new Date();
+            const fileName = `ScreenPresent_${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}_${date.getHours()}-${date.getMinutes()}-${date.getSeconds()}.webm`;
+            
+            // Save the file to downloads folder
+            const { dialog } = require('electron').remote;
+            const path = require('path');
+            const fs = require('fs');
+            
+            const downloadsPath = path.join(require('os').homedir(), 'Downloads');
+            const filePath = path.join(downloadsPath, fileName);
+            
+            fs.writeFile(filePath, buffer, () => {
+                dialog.showMessageBox({
+                    type: 'info',
+                    message: 'Recording saved',
+                    detail: `File saved to: ${filePath}`,
+                    buttons: ['OK']
+                });
+            });
+        }
+
+        // Listen for stop recording event from control window
+        ipcRenderer.on('stop-recording', () => {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+        });
 
         function captureWindow() {
             console.log('Capture window clicked');

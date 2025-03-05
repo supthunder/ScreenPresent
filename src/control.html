@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Recording Controls</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 8px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: rgba(0, 0, 0, 0.8);
+            border-radius: 8px;
+            -webkit-app-region: drag;
+            overflow: hidden;
+        }
+
+        .control-button {
+            background: #ff3b30;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            -webkit-app-region: no-drag;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .control-button:hover {
+            background: #ff1f1f;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            background-color: #fff;
+            border-radius: 50%;
+            display: inline-block;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <button class="control-button" onclick="stopRecording()">
+        <span class="dot"></span>
+        Stop Recording
+    </button>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        function stopRecording() {
+            ipcRenderer.send('stop-recording');
+        }
+    </script>
+</body>
+</html> 

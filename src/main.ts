@@ -1,7 +1,8 @@
-import { app, BrowserWindow, systemPreferences, ipcMain } from 'electron';
+import { app, BrowserWindow, systemPreferences, ipcMain, desktopCapturer } from 'electron';
 import * as path from 'path';
 
 let mainWindow: BrowserWindow | null = null;
+let controlWindow: BrowserWindow | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -17,6 +18,25 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '../src/index.html'));
+}
+
+function createControlWindow() {
+  controlWindow = new BrowserWindow({
+    width: 120,
+    height: 40,
+    frame: false,
+    resizable: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    },
+    transparent: true,
+    backgroundColor: '#00ffffff'
+  });
+
+  controlWindow.loadFile(path.join(__dirname, '../src/control.html'));
+  controlWindow.setVisibleOnAllWorkspaces(true);
 }
 
 app.whenReady().then(() => {
@@ -65,4 +85,35 @@ ipcMain.handle('open-accessibility-preferences', () => {
     return systemPreferences.isTrustedAccessibilityClient(true);
   }
   return true;
+});
+
+// Get available screens
+ipcMain.handle('get-sources', async () => {
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: {
+      width: 150,
+      height: 150
+    }
+  });
+  return sources;
+});
+
+// Start recording
+ipcMain.on('start-recording', () => {
+  createControlWindow();
+  if (mainWindow) {
+    mainWindow.hide();
+  }
+});
+
+// Stop recording
+ipcMain.on('stop-recording', () => {
+  if (controlWindow) {
+    controlWindow.close();
+    controlWindow = null;
+  }
+  if (mainWindow) {
+    mainWindow.show();
+  }
 }); 
