@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ScreenPresent</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Courier New', monospace;
+            background-color: #000;
+            color: #0f0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            padding: 20px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(45deg, #000000 25%, #001100 50%, #000000 75%);
+        }
+
+        .logo {
+            font-size: 2.5em;
+            margin-bottom: 40px;
+            text-shadow: 0 0 10px #0f0, 0 0 20px #0f0;
+            letter-spacing: 5px;
+        }
+
+        .options {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .option-button {
+            padding: 15px;
+            border: 2px solid #0f0;
+            background: transparent;
+            color: #0f0;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 1.1em;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .option-button:hover {
+            background: #0f02;
+            box-shadow: 0 0 20px #0f0;
+        }
+
+        .option-button:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 2px;
+            background: #0f0;
+            animation: scan 2s linear infinite;
+        }
+
+        @keyframes scan {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        .permission-notice {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #0f0;
+            display: none;
+        }
+
+        .wireframe-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(0deg, transparent 24%, 
+                    rgba(0, 255, 0, .05) 25%, 
+                    rgba(0, 255, 0, .05) 26%, 
+                    transparent 27%, transparent 74%, 
+                    rgba(0, 255, 0, .05) 75%, 
+                    rgba(0, 255, 0, .05) 76%, 
+                    transparent 77%, transparent),
+                linear-gradient(90deg, transparent 24%, 
+                    rgba(0, 255, 0, .05) 25%, 
+                    rgba(0, 255, 0, .05) 26%, 
+                    transparent 27%, transparent 74%, 
+                    rgba(0, 255, 0, .05) 75%, 
+                    rgba(0, 255, 0, .05) 76%, 
+                    transparent 77%, transparent);
+            background-size: 50px 50px;
+            z-index: -1;
+        }
+
+        .permission-button {
+            padding: 15px;
+            border: 2px solid #0f0;
+            background: rgba(0, 255, 0, 0.1);
+            color: #0f0;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 1.1em;
+            margin: 10px 0;
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .permission-button.granted {
+            border-color: #00ff00;
+            background: rgba(0, 255, 0, 0.2);
+        }
+
+        .permission-button.denied {
+            border-color: #ff0000;
+            color: #ff0000;
+        }
+
+        .permission-status {
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+
+        .recording-options {
+            display: none;
+            width: 100%;
+            max-width: 400px;
+        }
+    </style>
+</head>
+<body>
+    <div class="wireframe-bg"></div>
+    <div class="container">
+        <div class="logo">SCREENPRESENT</div>
+        
+        <!-- Permission Section -->
+        <div class="permissions-section">
+            <h2 style="color: #0f0; margin-bottom: 20px;">Required Permissions</h2>
+            
+            <button id="screenPermissionBtn" class="permission-button">
+                <span>Screen Recording Permission</span>
+                <span class="permission-status">Not Granted</span>
+            </button>
+            
+            <button id="accessibilityPermissionBtn" class="permission-button">
+                <span>Accessibility Permission</span>
+                <span class="permission-status">Not Granted</span>
+            </button>
+        </div>
+
+        <!-- Recording Options (Initially Hidden) -->
+        <div class="recording-options" id="recordingOptions">
+            <h2 style="color: #0f0; margin: 20px 0;">Recording Options</h2>
+            <button class="option-button" onclick="captureEntireDesktop()">Capture Entire Desktop</button>
+            <button class="option-button" onclick="captureWindow()">Capture Window</button>
+            <button class="option-button" onclick="captureArea()">Capture Area</button>
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        // Screen Recording Permission
+        const screenPermBtn = document.getElementById('screenPermissionBtn');
+        const screenPermStatus = screenPermBtn.querySelector('.permission-status');
+        
+        screenPermBtn.addEventListener('click', async () => {
+            try {
+                const granted = await ipcRenderer.invoke('request-screen-permission');
+                updatePermissionButton(screenPermBtn, screenPermStatus, granted);
+                checkAllPermissions();
+            } catch (error) {
+                screenPermStatus.textContent = 'Error';
+                screenPermBtn.classList.add('denied');
+            }
+        });
+
+        // Accessibility Permission
+        const accessibilityPermBtn = document.getElementById('accessibilityPermissionBtn');
+        const accessibilityPermStatus = accessibilityPermBtn.querySelector('.permission-status');
+        
+        accessibilityPermBtn.addEventListener('click', async () => {
+            await ipcRenderer.invoke('open-accessibility-preferences');
+            checkAccessibilityPermission();
+        });
+
+        async function checkAccessibilityPermission() {
+            const granted = await ipcRenderer.invoke('check-accessibility-permission');
+            updatePermissionButton(accessibilityPermBtn, accessibilityPermStatus, granted);
+            checkAllPermissions();
+        }
+
+        function updatePermissionButton(button, statusElement, granted) {
+            button.classList.remove('granted', 'denied');
+            button.classList.add(granted ? 'granted' : 'denied');
+            statusElement.textContent = granted ? 'Granted' : 'Not Granted';
+        }
+
+        async function checkAllPermissions() {
+            const screenGranted = await ipcRenderer.invoke('request-screen-permission');
+            const accessibilityGranted = await ipcRenderer.invoke('check-accessibility-permission');
+
+            if (screenGranted && accessibilityGranted) {
+                document.getElementById('recordingOptions').style.display = 'block';
+            } else {
+                document.getElementById('recordingOptions').style.display = 'none';
+            }
+        }
+
+        // Initial permission check
+        checkAllPermissions();
+        checkAccessibilityPermission();
+
+        // Recording functions
+        function captureEntireDesktop() {
+            console.log('Capture entire desktop clicked');
+        }
+
+        function captureWindow() {
+            console.log('Capture window clicked');
+        }
+
+        function captureArea() {
+            console.log('Capture area clicked');
+        }
+    </script>
+</body>
+</html> 
