@@ -7,67 +7,197 @@
             margin: 0;
             padding: 8px;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background: transparent;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
             -webkit-app-region: drag;
-            overflow: hidden;
             display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        .controls-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
             justify-content: center;
         }
 
         .control-button {
-            background: #ff3b30;
-            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
             border: none;
-            border-radius: 8px;
-            padding: 8px 20px;
-            font-size: 13px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #1d1d1f;
             cursor: pointer;
+            font-family: inherit;
+            font-size: 13px;
             transition: all 0.2s;
             -webkit-app-region: no-drag;
             display: flex;
             align-items: center;
             gap: 6px;
-            font-weight: 500;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            height: 32px;
+            box-sizing: border-box;
+            white-space: nowrap;
         }
 
         .control-button:hover {
-            background: #ff1f1f;
+            background: white;
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
 
-        .control-button:active {
-            transform: translateY(0);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        .control-button.stop {
+            background: rgba(255, 59, 48, 0.9);
+            color: white;
+            display: none;
         }
 
-        .dot {
+        .control-button.stop:hover {
+            background: rgb(255, 59, 48);
+        }
+
+        .recording-dot {
             width: 8px;
             height: 8px;
-            background-color: #fff;
+            background: red;
             border-radius: 50%;
-            display: inline-block;
+            display: none;
             animation: blink 1s infinite;
+            margin-right: 6px;
+        }
+
+        .delay-input {
+            width: 60px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-family: inherit;
+            font-size: 13px;
+            -webkit-app-region: no-drag;
+            text-align: center;
+            height: 32px;
+            box-sizing: border-box;
+        }
+
+        .delay-input:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .delay-label {
+            font-size: 13px;
+            margin-right: 4px;
+            white-space: nowrap;
+        }
+
+        .countdown {
+            font-size: 24px;
+            font-weight: 500;
+            margin: 0 12px;
+            display: none;
+            color: white;
         }
 
         @keyframes blink {
             0% { opacity: 1; }
-            50% { opacity: 0.5; }
+            50% { opacity: 0.4; }
             100% { opacity: 1; }
+        }
+
+        .delay-container {
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
     </style>
 </head>
 <body>
-    <button class="control-button" onclick="stopRecording()">
-        <span class="dot"></span>
-        Stop Recording
-    </button>
+    <div class="controls-container">
+        <div class="recording-dot"></div>
+        <button class="control-button start" onclick="startRecording()">
+            Start Recording
+        </button>
+        <div class="delay-container">
+            <span class="delay-label">Delay:</span>
+            <input type="number" class="delay-input" id="delayInput" min="0" max="60" value="0" placeholder="Seconds">
+        </div>
+        <span class="countdown" id="countdown"></span>
+        <button class="control-button stop" onclick="stopRecording()">
+            Stop Recording
+        </button>
+    </div>
 
     <script>
         const { ipcRenderer } = require('electron');
+        let countdownInterval;
+        let isRecording = false;
+
+        const delayInput = document.getElementById('delayInput');
+        
+        // Prevent non-numeric input
+        delayInput.addEventListener('input', function() {
+            this.value = this.value.replace(/[^0-9]/g, '');
+            if (this.value > 60) this.value = 60;
+            if (this.value < 0) this.value = 0;
+        });
+
+        function startCountdown(seconds) {
+            const countdown = document.getElementById('countdown');
+            countdown.style.display = 'block';
+            document.querySelector('.start').style.display = 'none';
+            document.querySelector('.delay-container').style.display = 'none';
+            
+            let timeLeft = seconds;
+            countdown.textContent = timeLeft;
+            
+            countdownInterval = setInterval(() => {
+                timeLeft--;
+                countdown.textContent = timeLeft;
+                
+                if (timeLeft <= 0) {
+                    clearInterval(countdownInterval);
+                    countdown.style.display = 'none';
+                    beginRecording();
+                }
+            }, 1000);
+        }
+
+        function startRecording() {
+            if (isRecording) return;
+            
+            const delaySeconds = parseInt(delayInput.value) || 0;
+            
+            if (delaySeconds > 0) {
+                startCountdown(delaySeconds);
+            } else {
+                beginRecording();
+            }
+        }
+
+        function beginRecording() {
+            isRecording = true;
+            document.querySelector('.recording-dot').style.display = 'block';
+            document.querySelector('.start').style.display = 'none';
+            document.querySelector('.delay-container').style.display = 'none';
+            document.querySelector('.stop').style.display = 'flex';
+            ipcRenderer.send('start-recording');
+        }
 
         function stopRecording() {
+            if (!isRecording) return;
+            
+            isRecording = false;
+            document.querySelector('.recording-dot').style.display = 'none';
+            document.querySelector('.start').style.display = 'flex';
+            document.querySelector('.delay-container').style.display = 'flex';
+            document.querySelector('.stop').style.display = 'none';
+            delayInput.value = '0';
             ipcRenderer.send('stop-recording');
         }
     </script>

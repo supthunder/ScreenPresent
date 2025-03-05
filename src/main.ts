@@ -35,31 +35,32 @@ function createWindow() {
 
 function createControlWindow() {
   controlWindow = new BrowserWindow({
-    width: 160,
-    height: 50,
+    width: 340,
+    height: 48,
     frame: false,
+    transparent: true,
     resizable: false,
     alwaysOnTop: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
     },
-    transparent: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
     skipTaskbar: true,
-    focusable: false
+    hasShadow: true
   });
 
-  controlWindow.loadFile(path.join(__dirname, '../src/control.html'));
+  controlWindow.loadFile('src/control.html');
   controlWindow.setVisibleOnAllWorkspaces(true);
   
-  // Position the window in the top-center of the screen
+  // Position window in the top-center of the screen
   const { screen } = require('electron');
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth } = primaryDisplay.workAreaSize;
-  const windowWidth = 160;
-  controlWindow.setPosition(Math.floor(screenWidth / 2 - windowWidth / 2), 20);
+  
+  controlWindow.setPosition(
+    Math.round((screenWidth - 340) / 2),
+    10
+  );
 }
 
 app.whenReady().then(() => {
