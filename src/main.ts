@@ -5,13 +5,15 @@ let mainWindow: BrowserWindow | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 600,
+    width: 500,
+    height: 400,
+    resizable: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
     },
     titleBarStyle: 'hiddenInset',
+    backgroundColor: '#ffffff'
   });
 
   mainWindow.loadFile(path.join(__dirname, '../src/index.html'));
