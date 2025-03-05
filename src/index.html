@@ -157,9 +157,9 @@
             background: rgba(0, 0, 0, 0.85);
             display: none;
             z-index: 1000;
-            padding: 0;
+            padding: 20px;
             box-sizing: border-box;
-            overflow: hidden;
+            overflow: auto;
         }
 
         .screen-selector .content-wrapper {
@@ -167,24 +167,40 @@
             height: 100%;
             margin: 0;
             display: flex;
+            flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             padding: 0;
+        }
+
+        .screen-selector .title {
+            color: white;
+            font-size: 20px;
+            font-weight: 500;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .screen-selector .subtitle {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            margin-bottom: 20px;
+            text-align: center;
+            max-width: 600px;
         }
 
         .screens-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 8px;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
             width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 8px;
-            align-items: center;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0;
         }
 
         .screen-option {
-            background: transparent;
+            background: rgba(255, 255, 255, 0.05);
             border: 2px solid transparent;
             border-radius: 8px;
             overflow: hidden;
@@ -193,13 +209,12 @@
             position: relative;
             aspect-ratio: 16/10;
             margin: 0;
-            height: auto;
-            max-height: none;
         }
 
         .screen-option:hover {
             transform: scale(1.02);
             border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.1);
         }
 
         .screen-option img {
@@ -208,14 +223,38 @@
             object-fit: contain;
             display: block;
             border-radius: 6px;
-            padding: 0;
         }
 
         .screen-option .name,
-        .screen-option .display-number,
+        .screen-option .display-number {
+            /* These should be visible by default */
+            display: block;
+            position: absolute;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .screen-option .display-number {
+            top: 10px;
+            left: 10px;
+        }
+
+        .screen-option .name {
+            bottom: 10px;
+            left: 10px;
+            right: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         .screen-selector .title,
         .screen-selector .subtitle {
-            display: none;
+            /* These should be visible by default */
+            display: block;
         }
     </style>
 </head>
@@ -277,120 +316,140 @@
     </div>
 
     <script>
-        const { ipcRenderer, desktopCapturer } = require('electron');
-
+        const { ipcRenderer } = require('electron');
+        
+        // Check permissions on load
+        window.addEventListener('DOMContentLoaded', async () => {
+            await checkScreenRecordingPermission();
+            await checkAccessibilityPermission();
+            checkAllPermissions();
+        });
+        
         // Screen Recording Permission
-        const screenPermBtn = document.getElementById('screenPermissionBtn');
-        const screenPermStatus = screenPermBtn.querySelector('.permission-status');
-        const permissionsSection = document.getElementById('permissionsSection');
-        
-        screenPermBtn.addEventListener('click', async () => {
-            try {
-                const granted = await ipcRenderer.invoke('request-screen-permission');
-                updatePermissionButton(screenPermBtn, screenPermStatus, granted);
-                checkAllPermissions();
-            } catch (error) {
-                screenPermStatus.textContent = 'Error';
-                screenPermBtn.classList.add('denied');
+        async function checkScreenRecordingPermission() {
+            const screenPermissionBtn = document.getElementById('screenPermissionBtn');
+            const status = await ipcRenderer.invoke('check-screen-recording-permission');
+            
+            if (status) {
+                screenPermissionBtn.classList.add('granted');
+                screenPermissionBtn.querySelector('.permission-status').textContent = 'Granted';
+            } else {
+                screenPermissionBtn.classList.add('denied');
+                screenPermissionBtn.querySelector('.permission-status').textContent = 'Not Granted';
             }
-        });
-
-        // Accessibility Permission
-        const accessibilityPermBtn = document.getElementById('accessibilityPermissionBtn');
-        const accessibilityPermStatus = accessibilityPermBtn.querySelector('.permission-status');
+            return status;
+        }
         
-        accessibilityPermBtn.addEventListener('click', async () => {
-            await ipcRenderer.invoke('open-accessibility-preferences');
-            checkAccessibilityPermission();
-        });
-
-        async function checkAccessibilityPermission() {
-            const granted = await ipcRenderer.invoke('check-accessibility-permission');
-            updatePermissionButton(accessibilityPermBtn, accessibilityPermStatus, granted);
+        async function requestScreenRecordingPermission() {
+            const result = await ipcRenderer.invoke('request-screen-recording-permission');
+            await checkScreenRecordingPermission();
             checkAllPermissions();
         }
-
-        function updatePermissionButton(button, statusElement, granted) {
-            button.classList.remove('granted', 'denied');
-            button.classList.add(granted ? 'granted' : 'denied');
-            statusElement.textContent = granted ? 'Granted' : 'Not Granted';
-        }
-
-        async function checkAllPermissions() {
-            const screenGranted = await ipcRenderer.invoke('request-screen-permission');
-            const accessibilityGranted = await ipcRenderer.invoke('check-accessibility-permission');
-
-            if (screenGranted && accessibilityGranted) {
-                document.getElementById('recordingOptions').style.display = 'block';
-                permissionsSection.style.display = 'none';
+        
+        // Accessibility Permission
+        async function checkAccessibilityPermission() {
+            const accessibilityPermissionBtn = document.getElementById('accessibilityPermissionBtn');
+            const status = await ipcRenderer.invoke('check-accessibility-permission');
+            
+            if (status) {
+                accessibilityPermissionBtn.classList.add('granted');
+                accessibilityPermissionBtn.querySelector('.permission-status').textContent = 'Granted';
             } else {
-                document.getElementById('recordingOptions').style.display = 'none';
-                permissionsSection.style.display = 'block';
+                accessibilityPermissionBtn.classList.add('denied');
+                accessibilityPermissionBtn.querySelector('.permission-status').textContent = 'Not Granted';
+            }
+        }
+        
+        async function requestAccessibilityPermission() {
+            const result = await ipcRenderer.invoke('request-accessibility-permission');
+            await checkAccessibilityPermission();
+            checkAllPermissions();
+        }
+        
+        // Add event listeners to buttons
+        document.getElementById('screenPermissionBtn').addEventListener('click', requestScreenRecordingPermission);
+        document.getElementById('accessibilityPermissionBtn').addEventListener('click', requestAccessibilityPermission);
+        
+        // Screen capture functions
+        async function captureEntireDesktop() {
+            try {
+                console.log('Main window: Getting desktop sources');
+                
+                // Use ipcRenderer to get sources from the main process instead
+                ipcRenderer.send('get-desktop-sources');
+                
+                // Show the screen selector (it will be populated when we receive the sources)
+                const screenSelector = document.getElementById('screenSelector');
+                screenSelector.style.display = 'flex';
+                console.log('Main window: Screen selector displayed, waiting for sources');
+                
+            } catch (error) {
+                console.error('Main window: Error capturing desktop:', error);
+                alert('Error getting screen sources: ' + error.message);
             }
         }
 
-        // Initial permission check
-        checkAllPermissions();
-        checkAccessibilityPermission();
-
-        let mediaRecorder;
-        let recordedChunks = [];
-
-        async function captureEntireDesktop() {
+        // Listen for sources from main process
+        ipcRenderer.on('desktop-sources', (event, sources) => {
+            console.log(`Main window: Received ${sources.length} sources from main process`);
+            
+            if (sources.length === 0) {
+                console.error('Main window: No sources found');
+                alert('No screens or windows found to record');
+                document.getElementById('screenSelector').style.display = 'none';
+                return;
+            }
+            
+            // Use the existing screen selector
             const screenSelector = document.getElementById('screenSelector');
             const screensGrid = document.getElementById('screensGrid');
+            
+            // Clear existing content
             screensGrid.innerHTML = '';
-
-            try {
-                const sources = await ipcRenderer.invoke('get-sources');
+            
+            // Make sure the title and subtitle are visible
+            const title = screenSelector.querySelector('.title');
+            const subtitle = screenSelector.querySelector('.subtitle');
+            
+            // Force display of title and subtitle
+            if (title) title.style.display = 'block';
+            if (subtitle) subtitle.style.display = 'block';
+            
+            // Add each source as an option
+            sources.forEach((source, index) => {
+                console.log(`Main window: Adding source ${index + 1}: ${source.name}`);
                 
-                sources.forEach((source, index) => {
-                    const div = document.createElement('div');
-                    div.className = 'screen-option';
-                    div.innerHTML = `
-                        <div class="display-number">Display ${index + 1}</div>
-                        <img src="${source.thumbnail.toDataURL()}" />
-                        <div class="name">${source.name}</div>
-                    `;
-                    div.onclick = () => startRecording(source.id);
-                    screensGrid.appendChild(div);
-                });
+                const option = document.createElement('div');
+                option.className = 'screen-option';
+                
+                const img = document.createElement('img');
+                img.src = source.thumbnail;
+                
+                const displayNumber = document.createElement('div');
+                displayNumber.className = 'display-number';
+                displayNumber.textContent = `Display ${index + 1}`;
+                
+                const name = document.createElement('div');
+                name.className = 'name';
+                name.textContent = source.name;
+                
+                option.appendChild(img);
+                option.appendChild(displayNumber);
+                option.appendChild(name);
+                
+                option.onclick = () => {
+                    console.log(`Main window: Selected source: ${source.id} (${source.name})`);
+                    screenSelector.style.display = 'none';
+                    ipcRenderer.send('source-id-selected', source.id);
+                };
+                
+                screensGrid.appendChild(option);
+            });
+        });
 
-                screenSelector.style.display = 'flex';
-            } catch (e) {
-                console.error('Error getting sources:', e);
-            }
-        }
-
-        async function startRecording(sourceId) {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: false,
-                    video: {
-                        mandatory: {
-                            chromeMediaSource: 'desktop',
-                            chromeMediaSourceId: sourceId,
-                            minWidth: 1280,
-                            maxWidth: 4000,
-                            minHeight: 720,
-                            maxHeight: 4000
-                        }
-                    }
-                });
-
-                document.getElementById('screenSelector').style.display = 'none';
-
-                mediaRecorder = new MediaRecorder(stream);
-                mediaRecorder.ondataavailable = handleDataAvailable;
-                mediaRecorder.onstop = handleStop;
-
-                recordedChunks = [];
-                mediaRecorder.start();
-                ipcRenderer.send('start-recording');
-
-            } catch (e) {
-                console.error('Error starting recording:', e);
-            }
+        function startRecording() {
+            console.log('Main window: Starting recording');
+            ipcRenderer.send('start-recording');
         }
 
         function handleDataAvailable(e) {
@@ -439,6 +498,27 @@
 
         function captureArea() {
             console.log('Capture area clicked');
+        }
+
+        // Check if all permissions are granted and update UI accordingly
+        async function checkAllPermissions() {
+            console.log('Main window: Checking all permissions');
+            const screenStatus = await ipcRenderer.invoke('check-screen-recording-permission');
+            const accessibilityStatus = await ipcRenderer.invoke('check-accessibility-permission');
+            
+            console.log('Main window: Screen permission:', screenStatus, 'Accessibility permission:', accessibilityStatus);
+            
+            if (screenStatus && accessibilityStatus) {
+                // Both permissions granted, show recording options and hide permissions
+                document.getElementById('recordingOptions').style.display = 'block';
+                document.getElementById('permissionsSection').style.display = 'none';
+                console.log('Main window: All permissions granted, showing recording options');
+            } else {
+                // Not all permissions granted, show permissions section
+                document.getElementById('recordingOptions').style.display = 'none';
+                document.getElementById('permissionsSection').style.display = 'block';
+                console.log('Main window: Not all permissions granted, showing permissions section');
+            }
         }
     </script>
 </body>

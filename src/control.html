@@ -15,6 +15,8 @@
             justify-content: center;
             box-sizing: border-box;
             overflow: hidden;
+            width: 100%;
+            height: 100%;
         }
 
         .controls-container {
@@ -42,6 +44,8 @@
             height: 32px;
             box-sizing: border-box;
             white-space: nowrap;
+            min-width: 120px;
+            justify-content: center;
         }
 
         .control-button:hover {
@@ -115,6 +119,13 @@
             align-items: center;
             gap: 4px;
         }
+
+        #videoPreview {
+            display: none;
+            position: absolute;
+            top: -9999px;
+            left: -9999px;
+        }
     </style>
 </head>
 <body>
@@ -133,10 +144,19 @@
         </button>
     </div>
 
+    <!-- Hidden video element for recording -->
+    <video id="videoPreview" autoplay></video>
+
     <script>
         const { ipcRenderer } = require('electron');
         let countdownInterval;
         let isRecording = false;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let sourceId = null;
+        let recordingStream = null;
+
+        console.log('Control window loaded');
 
         const delayInput = document.getElementById('delayInput');
         
@@ -147,7 +167,16 @@
             if (this.value < 0) this.value = 0;
         });
 
+        // Listen for source ID from main window
+        ipcRenderer.on('source-id', (event, id) => {
+            console.log('Control window: Received source ID:', id);
+            sourceId = id;
+            // Automatically start recording when we receive a source ID
+            startRecording();
+        });
+
         function startCountdown(seconds) {
+            console.log('Control window: Starting countdown:', seconds);
             const countdown = document.getElementById('countdown');
             countdown.style.display = 'block';
             document.querySelector('.start').style.display = 'none';
@@ -169,9 +198,14 @@
         }
 
         function startRecording() {
-            if (isRecording) return;
+            console.log('Control window: Start recording clicked');
+            if (isRecording) {
+                console.log('Control window: Already recording, ignoring');
+                return;
+            }
             
             const delaySeconds = parseInt(delayInput.value) || 0;
+            console.log('Control window: Delay seconds:', delaySeconds);
             
             if (delaySeconds > 0) {
                 startCountdown(delaySeconds);
@@ -180,26 +214,181 @@
             }
         }
 
-        function beginRecording() {
-            isRecording = true;
-            document.querySelector('.recording-dot').style.display = 'block';
-            document.querySelector('.start').style.display = 'none';
-            document.querySelector('.delay-container').style.display = 'none';
-            document.querySelector('.stop').style.display = 'flex';
-            ipcRenderer.send('start-recording');
+        async function beginRecording() {
+            try {
+                console.log('Control window: Beginning recording, sourceId:', sourceId);
+                
+                // Update UI first to show we're in recording state
+                document.querySelector('.recording-dot').style.display = 'block';
+                document.querySelector('.start').style.display = 'none';
+                document.querySelector('.delay-container').style.display = 'none';
+                document.querySelector('.stop').style.display = 'flex';
+                
+                // Get the source ID from the main process if not already set
+                if (!sourceId) {
+                    console.log('Control window: No source ID, using getDisplayMedia');
+                    try {
+                        const sources = await navigator.mediaDevices.getDisplayMedia({
+                            audio: false,
+                            video: {
+                                width: { ideal: 1920 },
+                                height: { ideal: 1080 },
+                                frameRate: { ideal: 30 }
+                            }
+                        });
+                        recordingStream = sources;
+                        console.log('Control window: Got display media stream');
+                    } catch (err) {
+                        console.error('Control window: Error getting display media:', err);
+                        resetUI();
+                        return;
+                    }
+                } else {
+                    // Use the specific source ID
+                    console.log('Control window: Using specific source ID');
+                    try {
+                        const constraints = {
+                            audio: false,
+                            video: {
+                                mandatory: {
+                                    chromeMediaSource: 'desktop',
+                                    chromeMediaSourceId: sourceId,
+                                    minWidth: 1280,
+                                    maxWidth: 1920,
+                                    minHeight: 720,
+                                    maxHeight: 1080,
+                                    minFrameRate: 30
+                                }
+                            }
+                        };
+                        
+                        recordingStream = await navigator.mediaDevices.getUserMedia(constraints);
+                        console.log('Control window: Got stream with source ID');
+                    } catch (err) {
+                        console.error('Control window: Error getting stream with source ID:', err);
+                        
+                        // Fall back to getDisplayMedia if we can't use the source ID
+                        console.log('Control window: Falling back to getDisplayMedia');
+                        try {
+                            const sources = await navigator.mediaDevices.getDisplayMedia({
+                                audio: false,
+                                video: {
+                                    width: { ideal: 1920 },
+                                    height: { ideal: 1080 },
+                                    frameRate: { ideal: 30 }
+                                }
+                            });
+                            recordingStream = sources;
+                            console.log('Control window: Got display media stream (fallback)');
+                        } catch (fallbackErr) {
+                            console.error('Control window: Error getting display media (fallback):', fallbackErr);
+                            resetUI();
+                            return;
+                        }
+                    }
+                }
+                
+                // Set up video preview (hidden)
+                const videoPreview = document.getElementById('videoPreview');
+                videoPreview.srcObject = recordingStream;
+                
+                // Set up media recorder
+                recordedChunks = [];
+                mediaRecorder = new MediaRecorder(recordingStream, {
+                    mimeType: 'video/webm; codecs=vp9'
+                });
+                
+                mediaRecorder.ondataavailable = handleDataAvailable;
+                mediaRecorder.onstop = handleStop;
+                
+                // Start recording
+                mediaRecorder.start();
+                isRecording = true;
+                console.log('Control window: Recording started');
+                
+            } catch (error) {
+                console.error('Control window: Error starting recording:', error);
+                alert('Error starting recording: ' + error.message);
+                resetUI();
+            }
+        }
+
+        function handleDataAvailable(e) {
+            console.log('Control window: Data available, size:', e.data.size);
+            if (e.data.size > 0) {
+                recordedChunks.push(e.data);
+            }
+        }
+
+        async function handleStop() {
+            console.log('Control window: Recording stopped, chunks:', recordedChunks.length);
+            
+            if (recordedChunks.length === 0) {
+                console.log('Control window: No data recorded');
+                resetUI();
+                return;
+            }
+            
+            try {
+                const blob = new Blob(recordedChunks, {
+                    type: 'video/webm; codecs=vp9'
+                });
+                
+                const buffer = await blob.arrayBuffer();
+                const date = new Date();
+                const fileName = `ScreenPresent_${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}_${date.getHours()}-${date.getMinutes()}-${date.getSeconds()}`;
+                
+                // Send to main process to save
+                console.log('Control window: Sending recording to main process');
+                ipcRenderer.send('save-recording', {
+                    buffer: Buffer.from(buffer),
+                    fileName: fileName
+                });
+                
+                resetUI();
+            } catch (error) {
+                console.error('Control window: Error saving recording:', error);
+                alert('Error saving recording: ' + error.message);
+                resetUI();
+            }
         }
 
         function stopRecording() {
-            if (!isRecording) return;
+            console.log('Control window: Stop recording clicked');
+            if (!isRecording || !mediaRecorder) {
+                console.log('Control window: Not recording, ignoring');
+                return;
+            }
+            
+            // Stop the media recorder
+            if (mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            
+            // Stop all tracks in the stream
+            if (recordingStream) {
+                recordingStream.getTracks().forEach(track => track.stop());
+                recordingStream = null;
+            }
             
             isRecording = false;
+        }
+
+        function resetUI() {
+            console.log('Control window: Resetting UI');
             document.querySelector('.recording-dot').style.display = 'none';
             document.querySelector('.start').style.display = 'flex';
             document.querySelector('.delay-container').style.display = 'flex';
             document.querySelector('.stop').style.display = 'none';
-            delayInput.value = '0';
-            ipcRenderer.send('stop-recording');
+            document.getElementById('countdown').style.display = 'none';
+            
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+            }
+            
+            isRecording = false;
         }
     </script>
 </body>
+</html> 
 </html> 
