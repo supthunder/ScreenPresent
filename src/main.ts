@@ -6,6 +6,7 @@ import * as fs from 'fs';
 let mainWindow: BrowserWindow | null = null;
 let controlWindow: BrowserWindow | null = null;
 let isRecording = false;
+let stopButtonWindow: BrowserWindow | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -60,7 +61,10 @@ function createControlWindow(sourceId = null) {
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
-    hasShadow: false
+    hasShadow: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    opacity: 0.8
   });
 
   // Fix the path to control.html - use the src directory instead of dist
@@ -95,14 +99,9 @@ function createControlWindow(sourceId = null) {
     console.log('Main process: Control window closed');
     controlWindow = null;
     
-    // If recording is still active when window is closed, stop it
-    if (isRecording) {
-      console.log('Main process: Recording was active, stopping due to window close');
-      isRecording = false;
-      if (mainWindow) {
-        console.log('Main process: Showing main window');
-        mainWindow.show();
-      }
+    // Show the main window again when control window is closed
+    if (mainWindow) {
+      mainWindow.show();
     }
   });
 }
@@ -171,6 +170,11 @@ ipcMain.handle('get-sources', async () => {
 ipcMain.on('source-id-selected', (event, sourceId) => {
   console.log('Main process: Received source ID selection:', sourceId);
   
+  // Hide the main window so it doesn't appear in the recording
+  if (mainWindow) {
+    mainWindow.hide();
+  }
+  
   // Create control window if it doesn't exist
   createControlWindow(sourceId);
 });
@@ -224,6 +228,11 @@ ipcMain.on('save-recording', async (event, data) => {
     
     if (result.canceled) {
       console.log('Main process: Save dialog canceled');
+      
+      // Show the main window again if save was canceled
+      if (mainWindow && !mainWindow.isVisible()) {
+        mainWindow.show();
+      }
       return;
     }
     
@@ -238,6 +247,11 @@ ipcMain.on('save-recording', async (event, data) => {
       message: 'Your recording has been saved successfully.',
       detail: `Saved to: ${result.filePath}`,
       buttons: ['OK']
+    }).then(() => {
+      // Show the main window again after the message is dismissed
+      if (mainWindow && !mainWindow.isVisible()) {
+        mainWindow.show();
+      }
     });
     
   } catch (error: any) {
@@ -250,6 +264,11 @@ ipcMain.on('save-recording', async (event, data) => {
       message: 'Failed to save your recording.',
       detail: error.message || String(error),
       buttons: ['OK']
+    }).then(() => {
+      // Show the main window again after the error message is dismissed
+      if (mainWindow && !mainWindow.isVisible()) {
+        mainWindow.show();
+      }
     });
   }
 });
@@ -310,5 +329,145 @@ ipcMain.on('get-desktop-sources', async (event) => {
   } catch (error) {
     console.error('Main process: Error getting desktop sources:', error);
     event.sender.send('desktop-sources', []);
+  }
+});
+
+// Handle close control window request
+ipcMain.on('close-control-window', () => {
+  console.log('Main process: Received close control window request');
+  if (controlWindow) {
+    controlWindow.close();
+  }
+  
+  // Show the main window again
+  if (mainWindow && !mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+});
+
+// Add a new event to hide the control window during recording
+ipcMain.on('recording-starting', () => {
+  console.log('Main process: Recording starting, hiding control window');
+  if (controlWindow) {
+    // Hide the control window completely during recording
+    controlWindow.hide();
+    
+    // Create a small floating stop button window
+    createStopButtonWindow();
+  }
+});
+
+// Add a new event to show the control window after recording stops
+ipcMain.on('recording-stopped', () => {
+  console.log('Main process: Recording stopped, showing control window');
+  
+  // Close the stop button window
+  if (stopButtonWindow) {
+    stopButtonWindow.close();
+    stopButtonWindow = null;
+  }
+  
+  // Show the control window again
+  if (controlWindow) {
+    controlWindow.show();
+  }
+});
+
+// Create a small floating stop button window
+function createStopButtonWindow() {
+  if (stopButtonWindow) {
+    return;
+  }
+  
+  console.log('Main process: Creating stop button window');
+  
+  stopButtonWindow = new BrowserWindow({
+    width: 50,
+    height: 50,
+    resizable: false,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+  
+  // Create HTML content for the stop button
+  const stopButtonHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body {
+          margin: 0;
+          padding: 0;
+          overflow: hidden;
+          background-color: transparent;
+          -webkit-app-region: drag;
+        }
+        .stop-button {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          background-color: rgba(255, 59, 48, 0.8);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          margin: 5px;
+          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+          -webkit-app-region: no-drag;
+        }
+        .stop-button:hover {
+          background-color: rgba(255, 59, 48, 1);
+        }
+        .stop-icon {
+          width: 16px;
+          height: 16px;
+          background-color: white;
+          border-radius: 2px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="stop-button" id="stopBtn">
+        <div class="stop-icon"></div>
+      </div>
+      <script>
+        const { ipcRenderer } = require('electron');
+        document.getElementById('stopBtn').addEventListener('click', () => {
+          ipcRenderer.send('stop-recording-clicked');
+        });
+      </script>
+    </body>
+    </html>
+  `;
+  
+  // Write the HTML to a temporary file
+  const tempPath = path.join(app.getPath('temp'), 'stop-button.html');
+  fs.writeFileSync(tempPath, stopButtonHtml);
+  
+  // Load the HTML file
+  stopButtonWindow.loadFile(tempPath);
+  
+  // Position in the bottom right corner
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+  stopButtonWindow.setPosition(width - 60, height - 60);
+  
+  stopButtonWindow.on('closed', () => {
+    stopButtonWindow = null;
+  });
+}
+
+// Handle stop recording button click
+ipcMain.on('stop-recording-clicked', () => {
+  console.log('Main process: Stop recording button clicked');
+  if (controlWindow) {
+    controlWindow.webContents.send('stop-recording-from-main');
   }
 });
